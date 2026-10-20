@@ -13,6 +13,7 @@
     .actions { margin: 1rem 0; }
     .muted { color: #666; font-size: .9rem; }
     .streams a { margin-right: 1rem; }
+    .streams a.disabled { color: #999; pointer-events: none; }
     fieldset { margin: 1rem 0; }
     label { display: block; margin: .5rem 0; }
   </style>
@@ -31,12 +32,14 @@
   <p class="streams">
     <a id="mainStream" href="#" target="_blank">Main stream (stream1)</a>
     <a id="lowStream" href="#" target="_blank">Secondary stream (stream2)</a>
+    <a id="audioStream" href="#" target="_blank">Audio stream</a>
   </p>
   <h2>Settings</h2>
   <form action="cgi-bin/settings.sh" method="post">
     <fieldset>
       <legend>Startup services</legend>
       <label><input type="checkbox" name="rtsp" value="YES" checked> RTSP server</label>
+      <label><input type="checkbox" name="audio" value="YES"> Audio RTSP server</label>
       <label><input type="checkbox" name="http" value="YES" checked> Web interface after reboot</label>
       <label><input type="checkbox" name="ftp" value="YES" checked> FTP server</label>
       <label><input type="checkbox" name="telnet" value="YES" checked> Telnet server</label>
@@ -69,6 +72,10 @@
         return r.text();
       }).then(function (text) {
         document.getElementById('status').textContent = text;
+        var audioEnabled = /Audio RTSP setting: YES/.test(text);
+        document.querySelector('input[name="audio"]').checked = audioEnabled;
+        document.getElementById('audioStream').className =
+          /Audio RTSP: running/.test(text) ? '' : 'disabled';
         document.getElementById('updated').textContent =
           'Updated ' + new Date().toLocaleTimeString();
       }).catch(function (error) {
@@ -87,22 +94,24 @@
             alert(r.ok ? 'Reboot requested.' : 'Reboot failed (' + r.status + ').');
           });
       }
-      document.querySelector('form').addEventListener('submit', function (event) {
-        event.preventDefault();
-        var form = event.target;
-        var data = new URLSearchParams(new FormData(form));
-        ['rtsp', 'http', 'ftp', 'telnet'].forEach(function (name) {
-          if (!form.elements[name].checked) data.set(name, 'NO');
-        });
-        fetch(form.action, { method: 'POST', body: data })
-          .then(function (r) { return r.text().then(function (text) {
-            alert(r.ok ? text : 'Settings failed (' + r.status + '): ' + text);
-          }); });
-      });
     }
+    document.querySelector('form').addEventListener('submit', function (event) {
+      event.preventDefault();
+      var form = event.target;
+      var data = new URLSearchParams(new FormData(form));
+      ['rtsp', 'audio', 'http', 'ftp', 'telnet'].forEach(function (name) {
+        if (!form.elements[name].checked) data.set(name, 'NO');
+      });
+      fetch(form.action, { method: 'POST', body: data })
+        .then(function (r) { return r.text().then(function (text) {
+          alert(r.ok ? text : 'Settings failed (' + r.status + '): ' + text);
+          if (r.ok) refreshStatus();
+        }); });
+    });
     var host = window.location.hostname;
     document.getElementById('mainStream').href = 'rtsp://' + host + '/stream1';
     document.getElementById('lowStream').href = 'rtsp://' + host + '/stream2';
+    document.getElementById('audioStream').href = 'rtsp://' + host + ':8555/audio';
     refreshStatus();
     refreshSnapshot();
     window.setInterval(refreshStatus, 10000);

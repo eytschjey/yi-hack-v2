@@ -97,7 +97,8 @@ Supported options include:
 | `YI_HACK_FTP_SERVER` | `YES` / `NO` | Starts the anonymous writable FTP service |
 | `YI_HACK_HTTP_SERVER` | `YES` / `NO` | Starts the custom web interface |
 | `YI_HACK_HTTP_PORT` | Numeric port | Custom web interface port |
-| `YI_HACK_RTSP_SERVER` | `YES` / `NO` | Starts RTSP in modified mode |
+| `YI_HACK_RTSP_SERVER` | `YES` / `NO` | Starts video RTSP in modified mode |
+| `YI_HACK_AUDIO_RTSP_SERVER` | `YES` / `NO` | Starts the separate PCMA audio RTSP service |
 | `YI_HACK_LANGUAGE` | `CN`, `US`, `FR` | Selects startup voice files |
 | `YI_HACK_TIME_TIMEZONE` | POSIX timezone string | Camera timezone |
 | `YI_HACK_TIME_FORMAT` | `strftime` format | Optional embedded timestamp format |
@@ -183,16 +184,17 @@ registered streams first; that error means the local go2rtc name was not
 registered and does not by itself prove that the camera's `stream2` endpoint is
 missing.
 
-The camera streams currently contain video only. The microphone hardware and
-AAC-related stock firmware components exist, but the custom v2 RTSP server
-does not advertise or send an audio track.
+The main camera RTSP streams contain video only. The microphone hardware and
+AAC-related stock firmware components exist, but the custom v2 video RTSP
+server does not advertise or send an audio track. Audio is exposed separately
+by the opt-in PCMA service described below.
 
 ### H21 audio bring-up
 
 The camera has ALSA capture devices and the stock firmware contains an AAC
 encoder inside `/home/web/ipc`. The modified startup does not run that process,
-and `/usr/local/bin/rtsp_server` is video-only. The payload therefore does not
-enable an audio setting or advertise an incomplete stream.
+and `/usr/local/bin/rtsp_server` is video-only. The payload therefore keeps
+audio in a separate service rather than advertising an incomplete video stream.
 
 For hardware and codec diagnostics from a Telnet shell, run:
 
@@ -246,9 +248,8 @@ rtsp://<camera-ip>:8555/audio
 The service is disabled by default. Build and copy
 `sd/test/v2/audio/audio_rtsp_server` to the camera, then set
 `YI_HACK_AUDIO_RTSP_SERVER=YES`. The existing video RTSP server remains
-unchanged. The initial implementation supports UDP RTP transport and one
-client; TCP-interleaved RTP and multi-client fan-out are intentionally left
-for follow-up work.
+unchanged. The implementation supports UDP RTP and RTSP-over-TCP interleaved RTP for one
+client; multi-client fan-out remains a follow-up item.
 
 ## Web interface
 
@@ -262,9 +263,10 @@ The dashboard provides:
 
 - Auto-refreshing uptime, load, memory, network, and video-process status.
 - A live JPEG snapshot from the native v2 capture tools.
-- Direct links to both RTSP endpoints.
+- Direct links to the video RTSP endpoints and the separate PCMA audio
+  endpoint.
 - LED controls for red, green, and blue: off, on, or flash.
-- Telnet, FTP, HTTP, and RTSP service controls.
+- Telnet, FTP, HTTP, RTSP, and audio RTSP service controls.
 - A reboot action sent only through HTTP `POST`.
 
 The interface is intentionally lightweight and uses the firmware-provided

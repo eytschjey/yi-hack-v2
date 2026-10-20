@@ -206,7 +206,7 @@ However:
 
 - The custom `/usr/local/bin/rtsp_server` only advertises H.264 video.
 - Its SDP has no `m=audio` section.
-- The repository has no compatible audio producer or RTSP audio server.
+- The repository includes a standalone PCMA producer and RTSP audio server.
 - yi-hack-v5 contains an audio design, but its binaries and shared-memory
   offsets are for different camera platforms and cannot be copied directly.
 
@@ -219,7 +219,9 @@ rtsp://<camera-ip>:8555/audio
 go2rtc can combine it with the existing video stream using a second source
 with `#media=audio`. This has been validated end to end with the live camera.
 
-Do not implement a UI-only audio setting.
+The web dashboard exposes the audio service state and an immediate,
+persisted toggle through `cgi-bin/settings.sh`. The toggle controls the
+standalone service and does not alter the video RTSP server.
 
 The repository now includes `sd/test/v2/scripts/audio_probe.sh`. It performs
 read-only ALSA/firmware checks by default, and `--init` explicitly runs the
@@ -283,13 +285,13 @@ The separate audio RTSP path is now implemented as
 
 - Listens for RTSP control on TCP port 8555.
 - Advertises `PCMA/8000` as RTP payload type 8 at `/audio`.
-- Accepts one UDP RTP client using the port from the RTSP `SETUP` request.
+- Accepts one UDP RTP client or one RTSP-over-TCP interleaved client.
 - Captures and packetizes 20 ms audio blocks from the H21 microphone.
 - Is gated by `YI_HACK_AUDIO_RTSP_SERVER`, which defaults to `NO`.
 - Does not modify or replace the existing video RTSP server.
 
-This first server is intentionally minimal: UDP RTP only, one client, and no
-RTSP-over-TCP interleaving. It is ARM-built against the camera's GLIBC 2.18
+This first server is intentionally minimal: one client and no
+multi-client fan-out. It is ARM-built against the camera's GLIBC 2.18
 runtime and has been validated on the live camera with RTSP control and
 160-byte PCMA RTP packets.
 
@@ -298,8 +300,9 @@ Audio follow-up work:
 - Replace simple six-to-one decimation with a proper low-pass
   filter/resampler.
 - Handle all recoverable ALSA errors.
-- Add RTSP-over-TCP interleaving, multiple clients, robust session parsing,
-  accurate SDP addressing, a watchdog, and clean shutdown.
+- Add multiple clients, accurate SDP addressing, a watchdog, and clean
+  shutdown. RTSP-over-TCP interleaving is implemented in the current source
+  but requires rebuilding the ARM binary before deployment.
 - Optionally add PCMU support.
 - Consider AAC only if PCMA's bandwidth or quality becomes insufficient.
 - Add audio levels, mute, event recording, sound detection, and investigate

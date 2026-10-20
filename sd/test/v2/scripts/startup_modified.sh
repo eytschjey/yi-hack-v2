@@ -72,11 +72,7 @@ if [ "${YI_HACK_RTSP_SERVER:-YES}" = "YES" ]; then
    /usr/local/bin/rtsp_server &
 fi
 if [ "${YI_HACK_AUDIO_RTSP_SERVER:-NO}" = "YES" ]; then
-   if [ -x /sdcard/test/v2/audio/audio_rtsp_server ]; then
-      /sdcard/test/v2/audio/audio_rtsp_server &
-   else
-      echo "Audio RTSP server is enabled but not installed"
-   fi
+   /sdcard/test/v2/scripts/audio_service.sh start
 fi
 /usr/local/bin/test_encode -A -h 1080p -e --bitrate 1500000
 /usr/local/bin/test_encode -B -e

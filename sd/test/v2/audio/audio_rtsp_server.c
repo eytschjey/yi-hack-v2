@@ -144,8 +144,23 @@ static int parse_client_port(const char *request, unsigned short *port)
     return 0;
 }
 
+static int parse_interleaved_channel(const char *request,
+                                     unsigned char *channel)
+{
+    const char *transport = strstr(request, "interleaved=");
+    unsigned int value;
+
+    if (transport == NULL ||
+        sscanf(transport, "interleaved=%u", &value) != 1 ||
+        value > 255)
+        return -1;
+    *channel = (unsigned char)value;
+    return 0;
+}
+
 static int handle_rtsp_request(int client, const char *request,
-                               unsigned short *rtp_port, int *playing)
+                               unsigned short *rtp_port, int *interleaved,
+                               unsigned char *rtp_channel, int *playing)
 {
     const char *cseq = strstr(request, "CSeq:");
     unsigned int sequence = cseq == NULL ? 1 : (unsigned int)strtoul(cseq + 5, NULL, 10);
@@ -170,14 +185,24 @@ static int handle_rtsp_request(int client, const char *request,
                  "Content-Type: application/sdp\r\nContent-Length: %u\r\n\r\n%s",
                  sequence, RTSP_PORT, (unsigned int)strlen(sdp), sdp);
     } else if (strncmp(request, "SETUP ", 6) == 0) {
-        if (parse_client_port(request, rtp_port) != 0)
+        if (parse_interleaved_channel(request, rtp_channel) == 0) {
+            *interleaved = 1;
+            snprintf(response, sizeof(response),
+                     "RTSP/1.0 200 OK\r\nCSeq: %u\r\n"
+                     "Transport: RTP/AVP/TCP;unicast;interleaved=%u-%u\r\n"
+                     "Session: 1\r\n\r\n",
+                     sequence, (unsigned int)*rtp_channel,
+                     (unsigned int)(*rtp_channel + 1));
+        } else if (parse_client_port(request, rtp_port) != 0) {
             snprintf(response, sizeof(response),
                      "RTSP/1.0 461 Unsupported Transport\r\nCSeq: %u\r\n\r\n", sequence);
-        else
+        } else {
+            *interleaved = 0;
             snprintf(response, sizeof(response),
                      "RTSP/1.0 200 OK\r\nCSeq: %u\r\nTransport: RTP/AVP;unicast;"
                      "client_port=%u-%u;server_port=8556-8557\r\nSession: 1\r\n\r\n",
                      sequence, *rtp_port, (unsigned int)(*rtp_port + 1));
+        }
     } else if (strncmp(request, "PLAY ", 5) == 0) {
         *playing = 1;
         snprintf(response, sizeof(response),
@@ -200,6 +225,8 @@ int main(void)
     int client = -1;
     int rtp_socket = -1;
     int playing = 0;
+    int interleaved = 0;
+    unsigned char rtp_channel = 0;
     unsigned short client_port = 0;
     unsigned short sequence = 0;
     unsigned int timestamp = 0;
@@ -257,6 +284,8 @@ int main(void)
             request_length = 0;
             playing = 0;
             client_port = 0;
+            interleaved = 0;
+            rtp_channel = 0;
         }
         if (client >= 0 && FD_ISSET(client, &read_set)) {
             ssize_t received = recv(client, request + request_length,
@@ -269,17 +298,31 @@ int main(void)
             } else {
                 request_length += (size_t)received;
                 request[request_length] = '\0';
-                if (strstr(request, "\r\n\r\n") != NULL) {
-                    if (handle_rtsp_request(client, request, &client_port, &playing) != 0) {
+                while (client >= 0) {
+                    char *end = strstr(request, "\r\n\r\n");
+                    size_t consumed;
+
+                    if (end == NULL)
+                        break;
+                    consumed = (size_t)(end - request) + 4;
+                    request[consumed] = '\0';
+                    if (handle_rtsp_request(client, request, &client_port,
+                                            &interleaved, &rtp_channel,
+                                            &playing) != 0) {
                         close(client);
                         client = -1;
                         playing = 0;
+                        request_length = 0;
+                        break;
                     }
-                    request_length = 0;
+                    request_length -= consumed;
+                    memmove(request, request + consumed, request_length);
+                    request[request_length] = '\0';
                 }
             }
         }
-        if (client >= 0 && playing && client_port != 0) {
+        if (client >= 0 && playing &&
+            (interleaved || client_port != 0)) {
             if (pcm == NULL && configure_capture(&pcm) != 0) {
                 playing = 0;
                 continue;
@@ -288,7 +331,7 @@ int main(void)
                 rtp_socket = socket(AF_INET, SOCK_DGRAM, 0);
             if (rtp_socket < 0)
                 break;
-            if (rtp_socket >= 0 && sequence == 0) {
+            if (!interleaved && rtp_socket >= 0 && sequence == 0) {
                 struct sockaddr_in rtp_address;
                 memset(&rtp_address, 0, sizeof(rtp_address));
                 rtp_address.sin_family = AF_INET;
@@ -302,34 +345,44 @@ int main(void)
                     continue;
                 }
             }
-            memset(&destination, 0, sizeof(destination));
-            destination.sin_family = AF_INET;
-            destination.sin_port = htons(client_port);
-            destination.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-            if (getpeername(client, (struct sockaddr *)&destination,
-                            &(socklen_t){sizeof(destination)}) == 0) {
-                destination.sin_port = htons(client_port);
-                if (snd_pcm_readi(pcm, samples, INPUT_FRAMES) == INPUT_FRAMES) {
-                    packet[0] = 0x80;
-                    packet[1] = RTP_PAYLOAD;
-                    packet[2] = (unsigned char)(sequence >> 8);
-                    packet[3] = (unsigned char)sequence++;
-                    packet[4] = (unsigned char)(timestamp >> 24);
-                    packet[5] = (unsigned char)(timestamp >> 16);
-                    packet[6] = (unsigned char)(timestamp >> 8);
-                    packet[7] = (unsigned char)timestamp;
-                    packet[8] = packet[9] = packet[10] = packet[11] = 0;
-                    for (size_t i = 0; i < 160; ++i) {
-                        int sample = ((int)samples[i * 12] +
-                                      (int)samples[(i * 12) + 1]) / 2;
-                        packet[RTP_HEADER_SIZE + i] = linear_to_alaw(sample);
-                    }
-                    sendto(rtp_socket, packet, sizeof(packet), 0,
-                           (struct sockaddr *)&destination, sizeof(destination));
-                    timestamp += 160;
-                } else {
-                    snd_pcm_prepare(pcm);
+            if (snd_pcm_readi(pcm, samples, INPUT_FRAMES) == INPUT_FRAMES) {
+                packet[0] = 0x80;
+                packet[1] = RTP_PAYLOAD;
+                packet[2] = (unsigned char)(sequence >> 8);
+                packet[3] = (unsigned char)sequence++;
+                packet[4] = (unsigned char)(timestamp >> 24);
+                packet[5] = (unsigned char)(timestamp >> 16);
+                packet[6] = (unsigned char)(timestamp >> 8);
+                packet[7] = (unsigned char)timestamp;
+                packet[8] = packet[9] = packet[10] = packet[11] = 0;
+                for (size_t i = 0; i < 160; ++i) {
+                    int sample = ((int)samples[i * 12] +
+                                  (int)samples[(i * 12) + 1]) / 2;
+                    packet[RTP_HEADER_SIZE + i] = linear_to_alaw(sample);
                 }
+                if (interleaved) {
+                    unsigned char framed[RTP_HEADER_SIZE + 160 + 4];
+                    unsigned short length = htons(sizeof(packet));
+                    framed[0] = '$';
+                    framed[1] = rtp_channel;
+                    memcpy(framed + 2, &length, sizeof(length));
+                    memcpy(framed + 4, packet, sizeof(packet));
+                    send(client, framed, sizeof(framed), 0);
+                } else {
+                    memset(&destination, 0, sizeof(destination));
+                    destination.sin_family = AF_INET;
+                    destination.sin_port = htons(client_port);
+                    if (getpeername(client, (struct sockaddr *)&destination,
+                                    &(socklen_t){sizeof(destination)}) == 0) {
+                        destination.sin_port = htons(client_port);
+                        sendto(rtp_socket, packet, sizeof(packet), 0,
+                               (struct sockaddr *)&destination,
+                               sizeof(destination));
+                    }
+                }
+                timestamp += 160;
+            } else {
+                snd_pcm_prepare(pcm);
             }
         }
     }

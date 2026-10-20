@@ -18,7 +18,8 @@ set_value() {
       YI_HACK_TELNET_SERVER:YES|YI_HACK_TELNET_SERVER:NO|\
       YI_HACK_FTP_SERVER:YES|YI_HACK_FTP_SERVER:NO|\
       YI_HACK_HTTP_SERVER:YES|YI_HACK_HTTP_SERVER:NO|\
-      YI_HACK_RTSP_SERVER:YES|YI_HACK_RTSP_SERVER:NO) ;;
+      YI_HACK_RTSP_SERVER:YES|YI_HACK_RTSP_SERVER:NO|\
+      YI_HACK_AUDIO_RTSP_SERVER:YES|YI_HACK_AUDIO_RTSP_SERVER:NO) ;;
       *) return 1 ;;
    esac
    if grep "^${key}=" "$CONFIG" >/dev/null 2>&1; then
@@ -50,6 +51,21 @@ start_telnet() {
    fi
 }
 
+start_audio() {
+   if [ -x /sdcard/test/v2/scripts/audio_service.sh ]; then
+      /sdcard/test/v2/scripts/audio_service.sh start >/dev/null
+   else
+      echo "Audio RTSP server launcher is not installed" >&2
+      return 1
+   fi
+}
+
+stop_audio() {
+   if [ -x /sdcard/test/v2/scripts/audio_service.sh ]; then
+      /sdcard/test/v2/scripts/audio_service.sh stop >/dev/null
+   fi
+}
+
 body=`cat`
 for item in `printf '%s' "$body" | tr '&' ' '`; do
    key=`printf '%s' "$item" | cut -d= -f1`
@@ -59,6 +75,7 @@ for item in `printf '%s' "$body" | tr '&' ' '`; do
       ftp) set_value YI_HACK_FTP_SERVER "$value" || exit 2 ;;
       http) set_value YI_HACK_HTTP_SERVER "$value" || exit 2 ;;
       rtsp) set_value YI_HACK_RTSP_SERVER "$value" || exit 2 ;;
+      audio) set_value YI_HACK_AUDIO_RTSP_SERVER "$value" || exit 2 ;;
       led_red|led_green|led_blue)
          case "$key" in
             led_red) color=red ;;
@@ -78,8 +95,10 @@ grep '^YI_HACK_TELNET_SERVER=YES$' "$CONFIG" >/dev/null 2>&1 && start_telnet ||
    stop_named telnetd
 grep '^YI_HACK_FTP_SERVER=YES$' "$CONFIG" >/dev/null 2>&1 && start_ftp ||
    stop_named 'tcpsvd.*ftpd'
+grep '^YI_HACK_AUDIO_RTSP_SERVER=YES$' "$CONFIG" >/dev/null 2>&1 && start_audio ||
+   stop_audio
 
 printf "Content-Type: text/plain\r\n"
 printf "Cache-Control: no-store\r\n\r\n"
 printf "Settings saved.\n"
-printf "RTSP and HTTP startup changes take effect after reboot.\n"
+printf "RTSP and HTTP startup changes take effect after reboot. Audio RTSP changed immediately.\n"
