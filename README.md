@@ -99,14 +99,17 @@ Supported options include:
 | `YI_HACK_HTTP_PORT` | Numeric port | Custom web interface port |
 | `YI_HACK_RTSP_SERVER` | `YES` / `NO` | Starts video RTSP in modified mode |
 | `YI_HACK_AUDIO_RTSP_SERVER` | `YES` / `NO` | Starts the separate PCMA audio RTSP service |
+| `YI_HACK_NTP_SERVER` | `YES` / `NO` (or peer host) | Starts BusyBox `ntpd` in modified mode (default `YES`) |
+| `YI_HACK_NTP_HOST` | Hostname or IP | Optional NTP peer override (default `pool.ntp.org`) |
 | `YI_HACK_LANGUAGE` | `CN`, `US`, `FR` | Selects startup voice files |
 | `YI_HACK_TIME_TIMEZONE` | POSIX timezone string | Camera timezone |
 | `YI_HACK_TIME_FORMAT` | `strftime` format | Optional embedded timestamp format |
 | `YI_HACK_PROXY` | Proxy URL | Optional stock/cloud proxy |
 
-The web interface can persist the Telnet, FTP, HTTP, and RTSP settings. FTP
-and Telnet changes are applied immediately; HTTP and RTSP changes take effect
-after reboot. LED changes are applied immediately.
+The web interface can persist the Telnet, FTP, HTTP, RTSP, Audio RTSP, and NTP
+settings. FTP, Telnet, Audio RTSP, and NTP changes are applied immediately;
+HTTP and RTSP changes take effect after reboot. LED changes are applied
+immediately.
 
 ## Services and access
 

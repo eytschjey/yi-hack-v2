@@ -56,10 +56,12 @@ reports or documentation.
 2. Runs the stock `/bak/usr/local/bin/usb_wifi.sh`.
 3. Uses `/usr/local/bin/amba_debug -g 51 -d 0x1`.
 4. Initializes GPIO LEDs and connects with `wifi_auto.sh`.
-5. Initializes the MN34220PL sensor.
-6. Runs `test_tuning`.
-7. Configures two encoder streams.
-8. Starts the firmware-provided `rtsp_server` when
+5. Exports `TZ` from `YI_HACK_TIME_TIMEZONE` and starts BusyBox `ntpd` via
+   `ntp_service.sh` when `YI_HACK_NTP_SERVER` is enabled (default `YES`).
+6. Initializes the MN34220PL sensor.
+7. Runs `test_tuning`.
+8. Configures two encoder streams.
+9. Starts the firmware-provided `rtsp_server` when
    `YI_HACK_RTSP_SERVER=YES`.
 
 The main encoder is currently configured as:

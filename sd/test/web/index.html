@@ -40,10 +40,11 @@
       <legend>Startup services</legend>
       <label><input type="checkbox" name="rtsp" value="YES" checked> RTSP server</label>
       <label><input type="checkbox" name="audio" value="YES"> Audio RTSP server</label>
+      <label><input type="checkbox" name="ntp" value="YES" checked> NTP time sync</label>
       <label><input type="checkbox" name="http" value="YES" checked> Web interface after reboot</label>
       <label><input type="checkbox" name="ftp" value="YES" checked> FTP server</label>
       <label><input type="checkbox" name="telnet" value="YES" checked> Telnet server</label>
-      <p class="muted">Unchecked services are disabled. RTSP and HTTP changes apply after reboot; FTP and Telnet apply immediately.</p>
+      <p class="muted">Unchecked services are disabled. RTSP and HTTP changes apply after reboot; Audio RTSP, NTP, FTP, and Telnet apply immediately.</p>
     </fieldset>
     <fieldset>
       <legend>LEDs</legend>
@@ -74,6 +75,8 @@
         document.getElementById('status').textContent = text;
         var audioEnabled = /Audio RTSP setting: YES/.test(text);
         document.querySelector('input[name="audio"]').checked = audioEnabled;
+        var ntpEnabled = !/NTP setting: NO/.test(text);
+        document.querySelector('input[name="ntp"]').checked = ntpEnabled;
         document.getElementById('audioStream').className =
           /Audio RTSP: running/.test(text) ? '' : 'disabled';
         document.getElementById('updated').textContent =
@@ -99,7 +102,7 @@
       event.preventDefault();
       var form = event.target;
       var data = new URLSearchParams(new FormData(form));
-      ['rtsp', 'audio', 'http', 'ftp', 'telnet'].forEach(function (name) {
+      ['rtsp', 'audio', 'ntp', 'http', 'ftp', 'telnet'].forEach(function (name) {
         if (!form.elements[name].checked) data.set(name, 'NO');
       });
       fetch(form.action, { method: 'POST', body: data })

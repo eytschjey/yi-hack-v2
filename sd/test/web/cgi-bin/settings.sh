@@ -19,7 +19,8 @@ set_value() {
       YI_HACK_FTP_SERVER:YES|YI_HACK_FTP_SERVER:NO|\
       YI_HACK_HTTP_SERVER:YES|YI_HACK_HTTP_SERVER:NO|\
       YI_HACK_RTSP_SERVER:YES|YI_HACK_RTSP_SERVER:NO|\
-      YI_HACK_AUDIO_RTSP_SERVER:YES|YI_HACK_AUDIO_RTSP_SERVER:NO) ;;
+      YI_HACK_AUDIO_RTSP_SERVER:YES|YI_HACK_AUDIO_RTSP_SERVER:NO|\
+      YI_HACK_NTP_SERVER:YES|YI_HACK_NTP_SERVER:NO) ;;
       *) return 1 ;;
    esac
    if grep "^${key}=" "$CONFIG" >/dev/null 2>&1; then
@@ -66,6 +67,21 @@ stop_audio() {
    fi
 }
 
+start_ntp() {
+   if [ -x /sdcard/test/v2/scripts/ntp_service.sh ]; then
+      /sdcard/test/v2/scripts/ntp_service.sh start >/dev/null
+   else
+      echo "NTP service launcher is not installed" >&2
+      return 1
+   fi
+}
+
+stop_ntp() {
+   if [ -x /sdcard/test/v2/scripts/ntp_service.sh ]; then
+      /sdcard/test/v2/scripts/ntp_service.sh stop >/dev/null
+   fi
+}
+
 body=`cat`
 for item in `printf '%s' "$body" | tr '&' ' '`; do
    key=`printf '%s' "$item" | cut -d= -f1`
@@ -76,6 +92,7 @@ for item in `printf '%s' "$body" | tr '&' ' '`; do
       http) set_value YI_HACK_HTTP_SERVER "$value" || exit 2 ;;
       rtsp) set_value YI_HACK_RTSP_SERVER "$value" || exit 2 ;;
       audio) set_value YI_HACK_AUDIO_RTSP_SERVER "$value" || exit 2 ;;
+      ntp) set_value YI_HACK_NTP_SERVER "$value" || exit 2 ;;
       led_red|led_green|led_blue)
          case "$key" in
             led_red) color=red ;;
@@ -97,8 +114,13 @@ grep '^YI_HACK_FTP_SERVER=YES$' "$CONFIG" >/dev/null 2>&1 && start_ftp ||
    stop_named 'tcpsvd.*ftpd'
 grep '^YI_HACK_AUDIO_RTSP_SERVER=YES$' "$CONFIG" >/dev/null 2>&1 && start_audio ||
    stop_audio
+if grep '^YI_HACK_NTP_SERVER=NO$' "$CONFIG" >/dev/null 2>&1; then
+   stop_ntp
+else
+   start_ntp
+fi
 
 printf "Content-Type: text/plain\r\n"
 printf "Cache-Control: no-store\r\n\r\n"
 printf "Settings saved.\n"
-printf "RTSP and HTTP startup changes take effect after reboot. Audio RTSP changed immediately.\n"
+printf "RTSP and HTTP startup changes take effect after reboot. Audio RTSP and NTP changed immediately.\n"

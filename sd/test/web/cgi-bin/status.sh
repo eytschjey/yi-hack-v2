@@ -1,5 +1,14 @@
 #!/bin/sh
 
+CONFIG=/sdcard/test/yi-hack-v2.cfg
+if [ -z "${TZ:-}" ] && [ -f "$CONFIG" ]; then
+   tz_cfg=`sed -n 's/^YI_HACK_TIME_TIMEZONE=//p' "$CONFIG" | tail -n 1`
+   if [ -n "$tz_cfg" ]; then
+      TZ=$tz_cfg
+      export TZ
+   fi
+fi
+
 printf "Content-Type: text/plain\r\n"
 printf "Cache-Control: no-store\r\n\r\n"
 printf "Yi Hack v2 status\n"
@@ -32,6 +41,17 @@ if grep '^YI_HACK_AUDIO_RTSP_SERVER=YES$' /sdcard/test/yi-hack-v2.cfg >/dev/null
    printf "Audio RTSP setting: YES\n"
 else
    printf "Audio RTSP setting: NO\n"
+fi
+if [ -x /sdcard/test/v2/scripts/ntp_service.sh ] &&
+   /sdcard/test/v2/scripts/ntp_service.sh status >/dev/null 2>&1; then
+   printf "NTP: running\n"
+else
+   printf "NTP: stopped\n"
+fi
+if grep '^YI_HACK_NTP_SERVER=NO$' /sdcard/test/yi-hack-v2.cfg >/dev/null 2>&1; then
+   printf "NTP setting: NO\n"
+else
+   printf "NTP setting: YES\n"
 fi
 printf "\nVideo processes:\n"
 ps 2>/dev/null | grep -E 'test_encode|test_tuning|rtsp_server' | grep -v grep

@@ -61,6 +61,14 @@ fi
 # Turn on blue led, wifi is OK
 /sdcard/test/v2/scripts/led.sh blue on
 
+if [ -n "$YI_HACK_TIME_TIMEZONE" ]; then
+   export TZ="$YI_HACK_TIME_TIMEZONE"
+fi
+if [ "${YI_HACK_NTP_SERVER:-YES}" != "NO" ] &&
+   [ -x /sdcard/test/v2/scripts/ntp_service.sh ]; then
+   /sdcard/test/v2/scripts/ntp_service.sh start
+fi
+
 # MN34220PL 1/3 -Inch, 1944x1213, 2.4-Megapixel CMOS Digital Image Sensor
 modprobe mn34220pl bus_addr=0x36
 
