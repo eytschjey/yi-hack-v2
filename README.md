@@ -86,6 +86,9 @@ YI_HACK_FTP_SERVER=YES
 YI_HACK_HTTP_SERVER=YES
 YI_HACK_HTTP_PORT=8080
 YI_HACK_RTSP_SERVER=YES
+YI_HACK_AUDIO_RTSP_SERVER=NO
+YI_HACK_NTP_SERVER=YES
+YI_HACK_TIME_TIMEZONE=CET-1CEST,M3.5.0,M10.5.0/3
 ```
 
 Supported options include:
@@ -121,6 +124,7 @@ In the default example configuration:
 | FTP | 21 | Anonymous writable access to the camera filesystem |
 | RTSP | 554 | Main and secondary local video streams |
 | Yi Hack HTTP | 8080 | Status, snapshot, settings, and reboot UI |
+| Audio RTSP | 8555 | Optional standalone PCMA audio stream (`/audio`, disabled by default) |
 
 The stock HTTP service may still occupy port 80 in official startup. SSH is not
 available: this firmware payload does not include an SSH server such as
@@ -269,7 +273,7 @@ The dashboard provides:
 - Direct links to the video RTSP endpoints and the separate PCMA audio
   endpoint.
 - LED controls for red, green, and blue: off, on, or flash.
-- Telnet, FTP, HTTP, RTSP, and audio RTSP service controls.
+- Telnet, FTP, HTTP, RTSP, audio RTSP, and NTP service controls.
 - A reboot action sent only through HTTP `POST`.
 
 The interface is intentionally lightweight and uses the firmware-provided
@@ -320,6 +324,37 @@ produce significant heat and CPU load. No reliable temperature sensor was
 exposed by this firmware during testing. Measure power with a USB power meter
 if consumption matters.
 
+## IR and night vision groundwork
+
+Static recovery and a temporary official-startup inspection on the H21
+camera identified the stock day/night interfaces:
+
+- IR illuminator brightness: `/sys/class/backlight/0.pwm_bl/brightness`
+  (`max_brightness=255`).
+- IR-cut filter control: `/dev/emd` with ioctl `0x400464c9`
+  (`_IOW('d', 0xc9, 4)`) and driver group selectors `0x18` and `0x19`, driven
+  in a break-before-make sequence (~150 ms pulse). These are driver group
+  selectors, not confirmed physical GPIO numbers; do not replace them with
+  GPIO sysfs writes.
+- Day/night ADC sensor input: `/sys/devices/e8000000.apb/e801d000.adc/adcsys`.
+- In official startup, `/home/web/ipc -w` owns `/dev/emd`, ALSA capture,
+  `ipc.config`, and a dedicated `ivs_daynight_thr` thread, and opens GPIO
+  value nodes for 24, 25, 33, 38, 46, 92, and 100.
+
+Implemented helpers and groundwork:
+
+- `sd/test/v2/scripts/ir_probe.sh`: read-only diagnostic script that records
+  day/night device nodes, sysfs paths, and stock config values.
+- `sd/test/v2/scripts/ir_light.sh`: manual illuminator helper supporting
+  `status`, `off`, `on`, or a numeric brightness (`0`–`255`). Does not operate
+  the IR-cut filter and is not started automatically.
+- `sd/test/v2/ir/ir_controller.c`: standalone controller source supporting
+  explicit `day` and `night` transitions via `/dev/emd` and PWM brightness,
+  with single-process locking and break-before-make sequencing. `auto` mode is
+  guarded by a non-zero, caller-supplied sensor threshold and offset. Not
+  enabled or deployed until optical polarity and sensor thresholds are
+  verified.
+
 ## Project structure
 
 ```text
@@ -328,15 +363,30 @@ test/
   factory_test.sh
   logs/
   v2/
-    audio/fr/                  French voice files
+    audio/
+      alsa_probe.c             ALSA hardware capture probe source
+      audio_rtsp_server.c      Standalone PCMA RTSP server source (port 8555)
+      pcma_producer.c          Standalone G.711 A-law producer source
+      Makefile                 ARM build rules for audio utilities
+      fr/                      French voice files
     bin/libyihackv2.so         Native hack library
     bin/tcpsvd                 FTP service launcher
-    scripts/capture.sh         Native JPEG snapshot helper
-    scripts/led.sh             GPIO LED control
-    scripts/startup_modified.sh
-    scripts/startup_official.sh
+    ir/
+      ir_controller.c          Guarded IR-cut and illuminator controller source
+      Makefile                 ARM build rules for IR controller
+    scripts/
+      audio_probe.sh           Read-only/init ALSA and codec diagnostic helper
+      audio_service.sh         Audio RTSP service manager
+      capture.sh               Native JPEG snapshot helper
+      ir_light.sh              Manual IR illuminator brightness helper
+      ir_probe.sh              Read-only IR and day/night diagnostic helper
+      led.sh                   GPIO LED control
+      ntp_service.sh           BusyBox ntpd service manager
+      startup_modified.sh
+      startup_official.sh
   web/
     index.html                 Web dashboard
+    start_http.sh              BusyBox httpd launcher
     cgi-bin/                   Status, snapshot, settings, and reboot handlers
   wpa_supplicant.conf          Local Wi-Fi credentials; keep private
   yi-hack-v2.cfg               Runtime configuration
@@ -345,10 +395,11 @@ test/
 ## TODO
 
 - Improve the working audio pipeline:
+  - rebuild and deploy the `audio_rtsp_server` ARM binary when source changes
+    are made (including RTSP-over-TCP interleaved RTP support);
   - add a proper low-pass filter/resampler instead of simple six-to-one
     decimation;
   - complete ALSA recovery for all recoverable errors;
-  - support RTSP-over-TCP interleaved RTP;
   - support multiple audio clients and robust RTSP session parsing;
   - advertise the camera's actual IP address in SDP;
   - add a service watchdog and clean shutdown handling;
@@ -360,55 +411,14 @@ test/
   - event-triggered recording;
   - sound detection;
   - investigate two-way audio if the camera speaker path is available.
-- Investigate IR and night vision safely:
-  - locate stock day/night and IR-cut control calls in `home.bin` and
-    `/home/web/ipc`;
-  - identify the IR-cut filter and illuminator interfaces;
-  - determine whether control uses GPIO, PWM, a kernel driver, or another
-    firmware device;
-  - add read-only day/night status detection first;
-  - add explicit `day`, `night`, and `auto` modes;
-  - expose `YI_HACK_NIGHT_MODE=AUTO` and web controls only after pin-level
-    behavior is verified;
-  - never toggle candidate GPIOs blindly because they may affect the sensor,
-    LEDs, Wi-Fi, or boot behavior.
-- Add the read-only `sd/test/v2/scripts/ir_probe.sh` to the diagnostic
-  deployment and use it to record the camera's current day/night interfaces.
-- Static recovery from the stock H21 IPC binary now identifies:
-  - IR illuminator brightness at `/sys/class/backlight/0.pwm_bl/brightness`,
-    with `max_brightness=255` on the test camera.
-  - IR-cut control through `/dev/emd` and ioctl `0x400464c9`
-    (`_IOW('d', 0xc9, 4)`).
-  - Stock IR-cut selector values `0x18` and `0x19`, driven in a
-    break-before-make sequence with approximately 150 ms between directions.
-  - The stock sensor input path
-    `/sys/devices/e8000000.apb/e801d000.adc/adcsys`.
-  - The `0x18` and `0x19` values are driver group selectors, not confirmed
-    physical GPIO numbers. Do not replace them with GPIO sysfs writes.
-- A temporary official-startup boot confirmed that `/home/web/ipc -w` owns
-  `/dev/emd`, ALSA capture, `ipc.config`, and a dedicated
-  `ivs_daynight_thr` thread. It also opened GPIO value nodes for 24, 25, 33,
-  38, 46, 92, and 100. The camera was restored to modified startup after the
-  check; no IR control was invoked.
-- The recovered illuminator path is implemented as the explicit helper
-  `sd/test/v2/scripts/ir_light.sh`. On the camera it supports `status`, `off`,
-  `on`, or a numeric brightness from `0` to `255`. It does not operate the
-  IR-cut filter and is not started automatically.
-- A standalone controller source is now under `sd/test/v2/ir/`. It supports
-  explicit `day` and `night` transitions through the recovered `/dev/emd`
-  ioctl and the PWM brightness path, with single-process locking and
-  break-before-make sequencing. `auto` is intentionally guarded by a
-  non-zero, caller-supplied sensor threshold and offset until the stock
-  sensor record is decoded. The controller is not enabled or deployed yet.
-- Optical IR-cut polarity testing is deferred. It requires a live video view,
-  Telnet recovery access, a one-shot test using only the recovered `/dev/emd`
-  ioctl, and an observable scene containing visible colors plus an IR source.
-  The test must keep the illuminator off, compare both candidate selector
-  values, and restore the original selector and brightness after each attempt.
-  An ioctl success alone does not identify day versus night polarity.
-- Automatic day/night mode remains disabled until the optical polarity and
-  sensor record format/threshold are verified. The controller's polarity
-  defaults are placeholders and must not be used for unattended operation.
+- Complete IR and night vision verification:
+  - run the controlled one-shot optical IR-cut polarity test (live video view,
+    Telnet recovery, illuminator off, observable scene with visible colors plus
+    an IR source, comparing both `/dev/emd` selector values and restoring
+    original state afterwards);
+  - decode the `adcsys` sensor record format and day/night threshold;
+  - enable `ir_controller` deployment, `YI_HACK_NIGHT_MODE=AUTO`, and web UI
+    controls only after optical polarity and sensor thresholds are verified.
 - Add authenticated web access or make the web UI read-only by default.
 - Add a lightweight RTSP/Wi-Fi watchdog with clear failure logging.
 - Add reproducible native builds for the camera's ARM userspace.

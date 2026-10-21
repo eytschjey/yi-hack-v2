@@ -7,10 +7,10 @@ keys, or other credentials here.
 
 ## Project and target
 
-- Repository: `pupartemis/yi-hack-v2`
+- Repository: `eytschjey/yi-hack-v2`
 - Upstream fork source: `niclet/yi-hack-v2`
 - Local project path used during development:
-  `/Users/jan/Desktop/yihack2/yi-hack-v2`
+  `/Users/jan/Downloads/test/yi-hack-v2`
 - Target: Xiaomi Yi Ants Camera 2 / H21 platform
 - Tested firmware: `2.1.1_20160429113900`
 - Camera platform is Ambarella-based.
@@ -44,7 +44,8 @@ reports or documentation.
 
 `sd/test/factory_test.sh`:
 
-1. Parses supported `YI_HACK_*` settings.
+1. Parses supported `YI_HACK_*` settings and exports `TZ` when
+   `YI_HACK_TIME_TIMEZONE` is set.
 2. Starts Telnet if enabled.
 3. Starts anonymous writable FTP if enabled.
 4. Starts the custom BusyBox HTTP interface if enabled.
@@ -63,6 +64,8 @@ reports or documentation.
 8. Configures two encoder streams.
 9. Starts the firmware-provided `rtsp_server` when
    `YI_HACK_RTSP_SERVER=YES`.
+10. Starts the separate PCMA audio RTSP service via `audio_service.sh` when
+    `YI_HACK_AUDIO_RTSP_SERVER=YES`.
 
 The main encoder is currently configured as:
 
@@ -92,6 +95,9 @@ YI_HACK_FTP_SERVER=YES
 YI_HACK_HTTP_SERVER=YES
 YI_HACK_HTTP_PORT=8080
 YI_HACK_RTSP_SERVER=YES
+YI_HACK_AUDIO_RTSP_SERVER=NO
+YI_HACK_NTP_SERVER=YES
+YI_HACK_TIME_TIMEZONE=CET-1CEST,M3.5.0,M10.5.0/3
 ```
 
 Expected services:
@@ -102,6 +108,7 @@ Expected services:
 | FTP | 21 | Anonymous writable filesystem access |
 | RTSP | 554 | `/stream1` and `/stream2` |
 | Custom HTTP | 8080 | Dashboard and CGI endpoints |
+| Audio RTSP | 8555 | `/audio` (opt-in via `YI_HACK_AUDIO_RTSP_SERVER=YES`) |
 
 SSH is not available. `nc <camera-ip> 23` is a Telnet shell, not SSH.
 
@@ -173,17 +180,18 @@ Files:
 
 The dashboard provides:
 
-- Auto-refreshing status, load, memory, network, and video-process output.
+- Auto-refreshing status (with local timezone via `YI_HACK_TIME_TIMEZONE`),
+  load, memory, network, service, and video-process output.
 - Native JPEG snapshots.
-- Links to both RTSP endpoints.
+- Links to the video RTSP endpoints and the separate audio RTSP endpoint.
 - LED controls: red, green, blue; off/on/flash.
-- Telnet, FTP, HTTP, and RTSP settings.
+- Telnet, FTP, HTTP, RTSP, Audio RTSP, and NTP settings.
 - Reboot through POST only.
 
 Settings behavior:
 
 - LED changes apply immediately.
-- FTP and Telnet changes apply immediately.
+- FTP, Telnet, Audio RTSP, and NTP changes apply immediately.
 - HTTP and RTSP settings are persisted but take effect after reboot.
 - The UI has no authentication and must stay on a trusted LAN.
 - The settings handler uses simple form parsing suitable for the firmware's
@@ -251,6 +259,8 @@ ARM `libasound.so.2`/libc runtime and deployed temporarily to the camera. It
 confirmed the microphone profile: `hw:0,0`, stereo, `S16_LE`, 48 kHz, with 480
 PCM frames readable. Mono was rejected with ALSA `EINVAL`. The diagnostic
 process reports a shutdown-time segmentation fault after the successful read,
+but the negotiated hardware parameters and PCM read are valid; the binary is
+not part of the runtime startup path.
 
 Static analysis of the stock IPC ALSA path adds these details:
 
@@ -429,8 +439,6 @@ ioctl success. The night position should remove the IR-cut filter and admit
 IR, while the day position should reject IR and preserve visible-light color.
 Until this test and sensor sampling are complete, the controller is not
 deployed, not started by modified startup, and AUTO mode must remain disabled.
-but the negotiated hardware parameters and PCM read are valid; the binary is
-not part of the runtime startup path.
 
 ## Diagnostics and failure modes
 
@@ -510,6 +518,10 @@ Recent feature commits:
 - `ed6bfa5` Add web service and LED controls
 - `3ac1ad6` Reduce main RTSP bitrate
 - `f538d7a` Expand project documentation
+- `d753c91` Add standalone PCMA audio streaming
+- `e4c1b90` Add guarded IR controller groundwork
+- `5818092` Add VLC-compatible audio streaming
+- `11956db` Add NTP time synchronization and timezone support
 
 This context file should be updated when verified runtime behavior,
 configuration, deployment steps, or priorities materially change.
